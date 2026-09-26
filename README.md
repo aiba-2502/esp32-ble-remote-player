@@ -260,6 +260,9 @@ Arduino ESP32 core 3.3.12 の prebuilt ライブラリでは Classic Bluetooth �
 python3 wav2header.py my_sound.wav sound.h
 ```
 
+`wav2header.py` と元の WAV はリポジトリに含めていない。スクリプトは
+`ble_mouse_player` のものと同一なので、そちらからコピーして使う。
+
 同梱の `sound.h` は `family-mart_3.wav` (8.97 秒) から加工なしで生成した。
 395718 サンプル、フラッシュ 791436 バイト。元の音源が RMS -10.3 dBFS と十分な
 音量なので、`--drive` はかけていない。かけると 3.0 で 2.5% のサンプルが潰れる。
