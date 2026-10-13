@@ -3,10 +3,12 @@
 BLE シャッターリモコン `vyviyon` のボタンを押すと、A2DP 接続した Bluetooth
 スピーカー `C06` から `family-mart_3.wav` が再生される。
 
-`ble_mouse_player` を複製し、入力を BLE マウスからシャッターリモコンに
-差し替えたもの。音源と再生処理は同じ。
+ESP32 を Classic Bluetooth の A2DP ソースと BLE HID ホストとして同時に動かす。
+配線は不要で、GPIO 2 のオンボード LED が再生中に点灯する。
 
-## 部品
+## 動作環境
+
+### ハードウェア
 
 | 部品 | 備考 |
 |---|---|
@@ -14,7 +16,28 @@ BLE シャッターリモコン `vyviyon` のボタンを押すと、A2DP 接続
 | BLE シャッターリモコン | BLE HID のみ対応 |
 | Bluetooth スピーカー | |
 
-配線は不要。GPIO 2 のオンボード LED が再生中に点灯する。
+### ソフトウェア
+
+動作確認済みの組み合わせ。特に ESP32 core と ESP32-A2DP のバージョンが変わると、
+Bluetooth API や再接続の挙動が変わる可能性がある。
+
+| ソフトウェア | バージョン |
+|---|---|
+| Arduino ESP32 core | 3.3.12 |
+| ESP32-A2DP | 1.8.11 |
+
+パーティションは **Huge APP (3MB No OTA/1MB SPIFFS)** が必須。
+
+## ファイル構成
+
+| ファイル | 役割 |
+|---|---|
+| `ble_remote_player/ble_remote_player.ino` | `setup()` と `loop()` の実行順を管理する |
+| `ble_remote_player/app_config.h` | 機器名、音量、待ち時間などの設定値 |
+| `ble_remote_player/playback.{h,cpp}` | PCM 再生と待機信号を生成する |
+| `ble_remote_player/speaker.{h,cpp}` | A2DP 接続、音量、再接続を管理する |
+| `ble_remote_player/remote.{h,cpp}` | BLE スキャン、HID 接続、押下を処理する |
+| `ble_remote_player/sound.h` | WAV から生成した PCM データ。手作業で編集・整形しない |
 
 ## 動作の流れ
 
@@ -59,10 +82,13 @@ Classic の探索と BLE スキャンを同時に走らせると競合するた�
 
 ## ビルドと書き込み
 
-1. **ツール > Partition Scheme > Huge APP (3MB No OTA/1MB SPIFFS)** にする。必須
-2. リモコンをスマホなど他の機器から削除し、ペアリングモードにする
-3. スピーカーをペアリングモードにする
-4. 書き込み後、シリアルモニタを 115200 baud で開く
+1. ボードマネージャーから Arduino ESP32 core 3.3.12 をインストールする
+2. ライブラリマネージャーから ESP32-A2DP 1.8.11 をインストールする
+3. `ble_remote_player/ble_remote_player.ino` を Arduino IDE で開く
+4. **ツール > Partition Scheme > Huge APP (3MB No OTA/1MB SPIFFS)** にする
+5. リモコンをスマホなど他の機器から削除し、ペアリングモードにする
+6. スピーカーをペアリングモードにする
+7. 書き込み後、シリアルモニタを 115200 baud で開く
 
 シリアルの想定出力:
 
@@ -99,8 +125,8 @@ ESP32 はスケッチの書き込み後やシリアル記録用のリセット�
 
 | 項目 | 場所 |
 |---|---|
-| スピーカー名 | `ble_remote_player.ino` の `SPEAKER_NAME` |
-| リモコン名 | `ble_remote_player.ino` の `REMOTE_NAME` |
+| スピーカー名 | `app_config.h` の `SPEAKER_NAME` |
+| リモコン名 | `app_config.h` の `REMOTE_NAME` |
 | BLE を見切りで開始するまでの時間 | `BLE_START_TIMEOUT_MS`（30000 ms） |
 | 音量 (0〜127) | `VOLUME`（100） |
 | 接続から音量設定までの待ち時間 | `VOLUME_DELAY_MS`（2000 ms） |
@@ -108,6 +134,23 @@ ESP32 はスケッチの書き込み後やシリアル記録用のリセット�
 
 名前はどちらも前方一致。リモコン名は大文字小文字を無視する。スピーカー名は
 ライブラリ側の照合なので区別する。
+
+## コードの構成
+
+`ble_remote_player.ino` は次の処理を順に呼ぶだけにし、詳細を役割別のファイルへ
+分けている。
+
+| 関数 | 役割 |
+|---|---|
+| `updateSpeaker()` | A2DP の接続状態、音量、押下時の再接続を処理する |
+| `startRemoteWhenReady()` | A2DP 接続後、またはタイムアウト後に BLE を開始する |
+| `updateRemote()` | スキャン結果を HID 接続へ引き渡す |
+
+非同期処理は用途ごとに分かれている。
+
+- `playback.cpp` は A2DP へ音声または待機信号を渡す
+- `speaker.cpp` はスピーカーの状態を保持する
+- `remote.cpp` は BLE コールバックとリモコンの状態を保持する
 
 ## 音量
 
@@ -246,7 +289,7 @@ BLE スキャンが無線時間の約 6 割を使っていて、A2DP の音声�
 ## 既知の制約
 
 A2DP のストリーミング中も BLE の接続イベントが同じ 2.4GHz を使う。
-7.3 秒の音源の再生では問題は出ていないが、長い音源や電波環境の悪い場所では
+8.97 秒の同梱音源の再生では問題は出ていないが、長い音源や電波環境の悪い場所では
 音が途切れる可能性がある。
 
 Arduino ESP32 core 3.3.12 の prebuilt ライブラリでは Classic Bluetooth の HID が
@@ -257,13 +300,14 @@ Arduino ESP32 core 3.3.12 の prebuilt ライブラリでは Classic Bluetooth �
 `ble_mouse_player` と同じ。16bit PCM 44100 Hz の WAV を置いて次を実行する。
 
 ```sh
-python3 wav2header.py my_sound.wav sound.h
+python3 wav2header.py my_sound.wav ble_remote_player/sound.h
 ```
 
 `wav2header.py` と元の WAV はリポジトリに含めていない。スクリプトは
 `ble_mouse_player` のものと同一なので、そちらからコピーして使う。
 
-同梱の `sound.h` は `family-mart_3.wav` (8.97 秒) から加工なしで生成した。
+同梱の `ble_remote_player/sound.h` は `family-mart_3.wav` (8.97 秒) から
+加工なしで生成した。
 395718 サンプル、フラッシュ 791436 バイト。元の音源が RMS -10.3 dBFS と十分な
 音量なので、`--drive` はかけていない。かけると 3.0 で 2.5% のサンプルが潰れる。
 
